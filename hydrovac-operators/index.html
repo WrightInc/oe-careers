@@ -597,7 +597,7 @@ footer{background:var(--navy-d);color:#fff}
             <label class="file-drop" id="fileDrop" for="resume">
               <input id="resume" name="resume" type="file" accept=".pdf,.doc,.docx,.rtf,.txt" required/>
               <div class="fd-main">Choose a file or drag it here</div>
-              <div class="fd-sub">PDF, DOC, DOCX, RTF — maximum 5 MB</div>
+              <div class="fd-sub">PDF, DOC, DOCX, RTF — maximum 2 MB</div>
             </label>
             <div class="file-name" id="fileName"></div>
           </div>
@@ -627,14 +627,14 @@ footer{background:var(--navy-d);color:#fff}
       file=document.getElementById('resume'),
       drop=document.getElementById('fileDrop'),
       fname=document.getElementById('fileName'),
-      MAX=5*1024*1024;
+      MAX=2*1024*1024;
 
   function show(t,k){ msg.textContent=t; msg.className='form-msg '+k; }
 
   file.addEventListener('change',function(){
     if(!file.files.length){ fname.textContent=''; return; }
     var f=file.files[0];
-    if(f.size>MAX){ show('That file is larger than 5 MB. Please attach a smaller file.','err'); file.value=''; fname.textContent=''; return; }
+    if(f.size>MAX){ show('That file is larger than 2 MB. Please attach a smaller file.','err'); file.value=''; fname.textContent=''; return; }
     fname.textContent='Attached: '+f.name;
     msg.className='form-msg';
   });
