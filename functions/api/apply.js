@@ -2,17 +2,25 @@
  * POST /api/apply — Hydrovac Operator application handler
  *
  * Cloudflare Pages Function. Accepts multipart/form-data, validates,
- * and emails the application to OE with the resume attached via MailChannels.
+ * and emails the application to OE with the resume attached, sent through
+ * OE's own Microsoft 365 tenant via the Microsoft Graph API.
  *
  * Required environment variables (Cloudflare Pages → Settings → Environment variables):
- *   TO_EMAIL     e.g. opportunities@oeservices.ca
- *   FROM_EMAIL   e.g. careers@oeservices.ca   (must be on a domain you control)
- *   DKIM_DOMAIN      optional — improves deliverability
- *   DKIM_SELECTOR    optional
- *   DKIM_PRIVATE_KEY optional
+ *   TENANT_ID      Directory (tenant) ID from Entra
+ *   CLIENT_ID      Application (client) ID from Entra
+ *   CLIENT_SECRET  Client secret VALUE (not the Secret ID) — store as encrypted
+ *   SEND_MAILBOX   Mailbox the app is authorised to send as, e.g. opportunities@oeservices.ca
+ *   TO_EMAIL       Where applications are delivered, e.g. opportunities@oeservices.ca
+ *
+ * The app registration must have Mail.Send granted through Exchange RBAC and
+ * scoped to SEND_MAILBOX only. It must NOT have Mail.Send consented in Entra,
+ * as the two grants combine and would remove the mailbox restriction.
  */
 
-const MAX_BYTES = 5 * 1024 * 1024;
+// Graph caps the whole JSON request at 4 MB. Base64 inflates a file by up to
+// 33%, so the raw file limit is held well below that.
+const MAX_BYTES = 2 * 1024 * 1024;
+const MAX_LABEL = '2 MB';
 const ALLOWED_EXT = ['pdf', 'doc', 'docx', 'rtf', 'txt'];
 
 const esc = (s) =>
@@ -26,6 +34,33 @@ const json = (obj, status = 200) =>
     status,
     headers: { 'Content-Type': 'application/json' },
   });
+
+async function getGraphToken(env) {
+  const body = new URLSearchParams({
+    client_id: env.CLIENT_ID,
+    client_secret: env.CLIENT_SECRET,
+    scope: 'https://graph.microsoft.com/.default',
+    grant_type: 'client_credentials',
+  });
+
+  const res = await fetch(
+    `https://login.microsoftonline.com/${env.TENANT_ID}/oauth2/v2.0/token`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body,
+    }
+  );
+
+  if (!res.ok) {
+    const detail = await res.text();
+    console.error('Graph token error', res.status, detail);
+    return null;
+  }
+
+  const data = await res.json();
+  return data.access_token || null;
+}
 
 export async function onRequestPost({ request, env }) {
   try {
@@ -60,7 +95,7 @@ export async function onRequestPost({ request, env }) {
 
     const bytes = await resume.arrayBuffer();
     if (bytes.byteLength > MAX_BYTES) {
-      return json({ ok: false, error: 'File exceeds 5 MB.' }, 400);
+      return json({ ok: false, error: `File exceeds ${MAX_LABEL}.` }, 400);
     }
 
     // base64 encode in chunks (avoids call-stack overflow on larger files)
@@ -72,7 +107,12 @@ export async function onRequestPost({ request, env }) {
     const b64 = btoa(binary);
 
     const TO = env.TO_EMAIL || 'opportunities@oeservices.ca';
-    const FROM = env.FROM_EMAIL || 'careers@oeservices.ca';
+    const SENDER = env.SEND_MAILBOX || TO;
+
+    if (!env.TENANT_ID || !env.CLIENT_ID || !env.CLIENT_SECRET) {
+      console.error('Graph credentials not configured');
+      return json({ ok: false, error: 'Mail delivery failed.' }, 502);
+    }
 
     const html = `
       <div style="font-family:Arial,Helvetica,sans-serif;color:#13203B;line-height:1.6">
@@ -95,40 +135,44 @@ export async function onRequestPost({ request, env }) {
         </p>
       </div>`;
 
-    const personalization = {
-      to: [{ email: TO, name: 'OE Recruitment' }],
-      reply_to: { email, name },
-    };
-    if (env.DKIM_DOMAIN && env.DKIM_SELECTOR && env.DKIM_PRIVATE_KEY) {
-      personalization.dkim_domain = env.DKIM_DOMAIN;
-      personalization.dkim_selector = env.DKIM_SELECTOR;
-      personalization.dkim_private_key = env.DKIM_PRIVATE_KEY;
+    const token = await getGraphToken(env);
+    if (!token) {
+      return json({ ok: false, error: 'Mail delivery failed.' }, 502);
     }
 
     const payload = {
-      personalizations: [personalization],
-      from: { email: FROM, name: 'OE Careers' },
-      subject: `Application — ${position} — ${name}`,
-      content: [{ type: 'text/html', value: html }],
-      attachments: [
-        {
-          filename: resume.name,
-          content: b64,
-          type: resume.type || 'application/octet-stream',
-          disposition: 'attachment',
-        },
-      ],
+      message: {
+        subject: `Application — ${position} — ${name}`,
+        body: { contentType: 'HTML', content: html },
+        toRecipients: [{ emailAddress: { address: TO } }],
+        replyTo: [{ emailAddress: { address: email, name } }],
+        attachments: [
+          {
+            '@odata.type': '#microsoft.graph.fileAttachment',
+            name: resume.name,
+            contentType: resume.type || 'application/octet-stream',
+            contentBytes: b64,
+          },
+        ],
+      },
+      saveToSentItems: false,
     };
 
-    const send = await fetch('https://api.mailchannels.net/tx/v1/send', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
+    const send = await fetch(
+      `https://graph.microsoft.com/v1.0/users/${encodeURIComponent(SENDER)}/sendMail`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      }
+    );
 
     if (!send.ok) {
       const detail = await send.text();
-      console.error('MailChannels error', send.status, detail);
+      console.error('Graph sendMail error', send.status, detail);
       return json({ ok: false, error: 'Mail delivery failed.' }, 502);
     }
 
