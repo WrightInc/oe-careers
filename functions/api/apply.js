@@ -55,7 +55,7 @@ async function getGraphToken(env) {
   if (!res.ok) {
     const detail = await res.text();
     console.error('Graph token error', res.status, detail);
-    throw new Error('TOKEN ' + res.status + ' ' + detail);
+    return null;
   }
 
   const data = await res.json();
@@ -173,13 +173,13 @@ export async function onRequestPost({ request, env }) {
     if (!send.ok) {
       const detail = await send.text();
       console.error('Graph sendMail error', send.status, detail);
-      return json({ ok: false, error: 'SENDMAIL ' + send.status + ' ' + detail }, 502);
+      return json({ ok: false, error: 'Mail delivery failed.' }, 502);
     }
 
     return json({ ok: true });
   } catch (err) {
     console.error('apply handler error', err);
-    return json({ ok: false, error: String(err && err.message || err) }, 500);
+    return json({ ok: false, error: 'Server error.' }, 500);
   }
 }
 
