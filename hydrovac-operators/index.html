@@ -674,6 +674,7 @@ footer{background:var(--navy-d);color:#fff}
         if(d && d.ok){
           form.style.display='none';
           show('Thank you. Your application has been received and our team will review it shortly.','ok');
+          msg.scrollIntoView({behavior:'smooth',block:'center'});
         } else {
           throw new Error((d && d.error) || 'send failed');
         }
