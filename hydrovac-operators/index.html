@@ -593,11 +593,11 @@ footer{background:var(--navy-d);color:#fff}
           </div>
 
           <div class="field full">
-            <label>Your Resume <span class="req">*</span></label>
+            <label>Your Resume</label>
             <label class="file-drop" id="fileDrop" for="resume">
-              <input id="resume" name="resume" type="file" accept=".pdf,.doc,.docx,.rtf,.txt" required/>
+              <input id="resume" name="resume" type="file" accept=".pdf,.doc,.docx,.rtf,.txt"/>
               <div class="fd-main">Choose a file or drag it here</div>
-              <div class="fd-sub">PDF, DOC, DOCX, RTF — maximum 2 MB</div>
+              <div class="fd-sub">PDF, DOC, DOCX, RTF — maximum 2 MB. Optional.</div>
             </label>
             <div class="file-name" id="fileName"></div>
           </div>
@@ -663,7 +663,6 @@ footer{background:var(--navy-d);color:#fff}
     if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(form.email.value)){
       show('Please enter a valid email address.','err'); form.email.focus(); return;
     }
-    if(!file.files.length){ show('Please attach your resume.','err'); return; }
 
     btn.disabled=true; btn.textContent='Sending…';
     show('Uploading your application…','ok');
