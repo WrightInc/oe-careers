@@ -682,6 +682,7 @@ footer{background:var(--navy-d);color:#fff}
       .catch(function(){
         btn.disabled=false; btn.textContent='Submit Application';
         show('Something went wrong sending your application. Please email your resume to opportunities@oeservices.ca and we will pick it up from there.','err');
+        msg.scrollIntoView({behavior:'smooth',block:'center'});
       });
   });
 })();
