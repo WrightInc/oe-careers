@@ -84,27 +84,29 @@ export async function onRequestPost({ request, env }) {
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return json({ ok: false, error: 'Invalid email address.' }, 400);
     }
-    if (!resume || typeof resume.arrayBuffer !== 'function') {
-      return json({ ok: false, error: 'Resume attachment is required.' }, 400);
-    }
+    const hasResume =
+      resume && typeof resume.arrayBuffer === 'function' && resume.size > 0;
 
-    const ext = (resume.name || '').split('.').pop().toLowerCase();
-    if (!ALLOWED_EXT.includes(ext)) {
-      return json({ ok: false, error: 'Unsupported file type.' }, 400);
-    }
+    let b64 = null;
+    if (hasResume) {
+      const ext = (resume.name || '').split('.').pop().toLowerCase();
+      if (!ALLOWED_EXT.includes(ext)) {
+        return json({ ok: false, error: 'Unsupported file type.' }, 400);
+      }
 
-    const bytes = await resume.arrayBuffer();
-    if (bytes.byteLength > MAX_BYTES) {
-      return json({ ok: false, error: `File exceeds ${MAX_LABEL}.` }, 400);
-    }
+      const bytes = await resume.arrayBuffer();
+      if (bytes.byteLength > MAX_BYTES) {
+        return json({ ok: false, error: `File exceeds ${MAX_LABEL}.` }, 400);
+      }
 
-    // base64 encode in chunks (avoids call-stack overflow on larger files)
-    const view = new Uint8Array(bytes);
-    let binary = '';
-    for (let i = 0; i < view.length; i += 0x8000) {
-      binary += String.fromCharCode.apply(null, view.subarray(i, i + 0x8000));
+      // base64 encode in chunks (avoids call-stack overflow on larger files)
+      const view = new Uint8Array(bytes);
+      let binary = '';
+      for (let i = 0; i < view.length; i += 0x8000) {
+        binary += String.fromCharCode.apply(null, view.subarray(i, i + 0x8000));
+      }
+      b64 = btoa(binary);
     }
-    const b64 = btoa(binary);
 
     const TO = env.TO_EMAIL || 'opportunities@oeservices.ca';
     const SENDER = env.SEND_MAILBOX || TO;
@@ -131,7 +133,7 @@ export async function onRequestPost({ request, env }) {
             : ''
         }
         <p style="margin-top:22px;font-size:14px;color:#54607A">
-          Resume attached: ${esc(resume.name)}
+          ${hasResume ? `Resume attached: ${esc(resume.name)}` : 'No resume attached.'}
         </p>
       </div>`;
 
@@ -146,14 +148,16 @@ export async function onRequestPost({ request, env }) {
         body: { contentType: 'HTML', content: html },
         toRecipients: [{ emailAddress: { address: TO } }],
         replyTo: [{ emailAddress: { address: email, name } }],
-        attachments: [
-          {
-            '@odata.type': '#microsoft.graph.fileAttachment',
-            name: resume.name,
-            contentType: resume.type || 'application/octet-stream',
-            contentBytes: b64,
-          },
-        ],
+        attachments: hasResume
+          ? [
+              {
+                '@odata.type': '#microsoft.graph.fileAttachment',
+                name: resume.name,
+                contentType: resume.type || 'application/octet-stream',
+                contentBytes: b64,
+              },
+            ]
+          : [],
       },
       saveToSentItems: false,
     };
